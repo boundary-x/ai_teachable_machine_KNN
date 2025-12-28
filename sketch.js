@@ -1,6 +1,7 @@
 /**
  * sketch.js
- * Boundary X Teachable Machine Controller Logic (Square Crop Fixed)
+ * Boundary X: AI Model Training (KNN Version)
+ * Features: MobileNet Feature Extraction + KNN, Real-time Learning
  */
 
 // Bluetooth UUIDs
@@ -13,69 +14,63 @@ let rxCharacteristic = null;
 let txCharacteristic = null;
 let isConnected = false;
 let bluetoothStatus = "연결 대기 중";
-
-// Video and ML variables
-let video;
-let classifier = null;
-let label = "대기 중";
-let isClassifying = false;
-
-// Camera control variables
-let isFlipped = false;
-let facingMode = "user";
-let isVideoLoaded = false; 
-
-// UI elements
-let modelInput, modelSelect, initializeModelButton, stopClassifyButton;
-let flipButton, switchCameraButton, connectBluetoothButton, disconnectBluetoothButton;
-let modelStatusDiv;
-
-// 모델 리스트
-const modelList = {
-  "가위 바위 보 분류": "https://teachablemachine.withgoogle.com/models/vOi4Y0yiK/",
-  "속도 표지판 분류": "https://teachablemachine.withgoogle.com/models/cTrp8ZF93/",
-  "방향 표지판 분류": "https://teachablemachine.withgoogle.com/models/JX0oMMrn3/"
-};
-
 let isSendingData = false;
-let canvas; // Canvas 객체 저장용
+
+// ML Variables
+let video;
+let featureExtractor;
+let knnClassifier;
+let isModelReady = false;
+let isPredicting = false; 
+
+// ID Mapping System
+let nextClassId = 1; 
+let idToNameMap = {}; 
+
+// DOM Elements
+let classInput, addClassBtn, classListContainer, resetBtn;
+let resultLabel, resultConfidence, btDataDisplay;
+let flipButton, switchCameraButton, connectBluetoothButton, disconnectBluetoothButton;
+let startRecognitionButton, stopRecognitionButton; 
+let canvas;
+
+// Camera
+let facingMode = "user";
+let isFlipped = false;
+let isVideoLoaded = false;
 
 function setup() {
-  // 400x400 정사각형 캔버스
+  // 1:1 정사각형 캔버스 생성
   canvas = createCanvas(400, 400);
   canvas.parent('p5-container');
   
+  // MobileNet 특징 추출기 로드
+  featureExtractor = ml5.featureExtractor('MobileNet', modelReady);
+  knnClassifier = ml5.KNNClassifier();
+
   setupCamera();
   createUI();
+}
+
+function modelReady() {
+  console.log("MobileNet Feature Extractor Loaded!");
+  isModelReady = true;
 }
 
 function setupCamera() {
   let constraints = {
     video: {
       facingMode: facingMode
-      // width, height를 강제하지 않음 (카메라 고유 비율 사용)
     },
     audio: false
   };
-
   video = createCapture(constraints);
-  
-  video.elt.onloadeddata = function() {
-    console.log("Video metadata loaded");
-  };
-
-  // [수정] video.size() 강제 설정을 제거하여 원본 비율 유지
   video.hide();
 
+  // 비디오 로드 확인
   let videoLoadCheck = setInterval(() => {
-    if (isVideoLoaded) {
-      clearInterval(videoLoadCheck);
-      return;
-    }
-    // 데이터가 들어오기 시작하면 로드 완료
     if (video.elt.readyState >= 2 && video.width > 0) {
       isVideoLoaded = true;
-      resizeCanvasToFit();
       clearInterval(videoLoadCheck);
       console.log(`Video Stream Ready: ${video.width}x${video.height}`);
     }
@@ -83,27 +78,46 @@ function setupCamera() {
 }
 
 function stopVideo() {
-  if (video) {
-    if (video.elt.srcObject) {
-      const tracks = video.elt.srcObject.getTracks();
-      tracks.forEach(track => track.stop());
+    if (video) {
+        if (video.elt.srcObject) {
+            video.elt.srcObject.getTracks().forEach(track => track.stop());
+        }
+        video.remove();
+        video = null;
     }
-    video.remove(); 
-    video = null;
-  }
 }
 
 function createUI() {
+  // DOM Selectors
+  classInput = select('#class-input');
+  addClassBtn = select('#add-class-btn');
+  classListContainer = select('#class-list');
+  resetBtn = select('#reset-model-btn');
+  
+  resultLabel = select('#result-label');
+  resultConfidence = select('#result-confidence');
+  btDataDisplay = select('#bluetooth-data-display');
+
+  // Input Events
+  addClassBtn.mousePressed(addNewClass);
+  classInput.elt.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") addNewClass();
+  });
+  
+  resetBtn.mousePressed(resetModel);
+
+  // 1. Camera Buttons
   flipButton = createButton("좌우 반전");
   flipButton.parent('camera-control-buttons');
   flipButton.addClass('start-button');
-  flipButton.mousePressed(toggleFlip);
+  flipButton.mousePressed(() => isFlipped = !isFlipped);
 
   switchCameraButton = createButton("전후방 전환");
   switchCameraButton.parent('camera-control-buttons');
   switchCameraButton.addClass('start-button');
   switchCameraButton.mousePressed(switchCamera);
 
+  // 2. Bluetooth Buttons
   connectBluetoothButton = createButton("기기 연결");
   connectBluetoothButton.parent('bluetooth-control-buttons');
   connectBluetoothButton.addClass('start-button');
@@ -114,164 +128,202 @@ function createUI() {
   disconnectBluetoothButton.addClass('stop-button');
   disconnectBluetoothButton.mousePressed(disconnectBluetooth);
 
-  modelSelect = createSelect();
-  modelSelect.parent('model-select-and-link');
-  modelSelect.option("샘플 모델 선택 또는 직접 입력", "");
-  for (const modelName in modelList) {
-    modelSelect.option(modelName, modelList[modelName]);
-  }
-  modelSelect.changed(updateModelInput);
+  // 3. Recognition Control Buttons
+  startRecognitionButton = createButton("인식 시작");
+  startRecognitionButton.parent('recognition-control-buttons');
+  startRecognitionButton.addClass('start-button');
+  startRecognitionButton.mousePressed(startClassify);
 
-  createA("https://boundaryx.io", "데이터셋 및 설명 보기", "_blank")
-    .parent('model-select-and-link')
-    .style("color", "#666").style("font-size", "0.9rem").style("display", "block").style("margin-top", "5px");
-
-  modelInput = createInput('');
-  modelInput.parent('model-key-container');
-  modelInput.attribute('placeholder', '모델 전체 주소 또는 짧은 ID 입력 (예: lSgKZj_c5)');
-
-  modelStatusDiv = createDiv('모델을 로드해주세요.');
-  modelStatusDiv.parent('model-key-container');
-  modelStatusDiv.id('modelStatus');
-
-  initializeModelButton = createButton('모델 로드 시작');
-  initializeModelButton.parent('model-action-buttons');
-  initializeModelButton.addClass('start-button');
-  initializeModelButton.mousePressed(initializeModel);
-
-  stopClassifyButton = createButton('분류 중지');
-  stopClassifyButton.parent('model-action-buttons');
-  stopClassifyButton.addClass('stop-button');
-  stopClassifyButton.mousePressed(stopClassification);
+  stopRecognitionButton = createButton("인식 중지");
+  stopRecognitionButton.parent('recognition-control-buttons');
+  stopRecognitionButton.addClass('stop-button');
+  stopRecognitionButton.mousePressed(stopClassify);
 
   updateBluetoothStatusUI();
 }
 
-function toggleFlip() {
-  isFlipped = !isFlipped;
-}
-
 function switchCamera() {
   stopVideo();
-  isVideoLoaded = false; 
+  isVideoLoaded = false;
   facingMode = facingMode === "user" ? "environment" : "user";
-  
-  setTimeout(() => {
-    setupCamera();
-  }, 200); 
+  setTimeout(setupCamera, 500);
 }
 
-function updateModelInput() {
-  const selectedModelURL = modelSelect.value();
-  modelInput.value(selectedModelURL || "");
+// === Logic: Class Management ===
+
+function addNewClass() {
+    const className = classInput.value().trim();
+    if (className === "") {
+        alert("이름을 입력해주세요.");
+        return;
+    }
+
+    const currentId = String(nextClassId++);
+    idToNameMap[currentId] = className; 
+
+    // UI Row
+    const row = createDiv('');
+    row.addClass('train-btn-row');
+    row.parent(classListContainer);
+
+    // Train Button
+    const trainBtn = createButton(
+        `<span class="id-badge">ID ${currentId}</span>
+         <span class="train-text">${className}</span>`
+    );
+    trainBtn.addClass('train-btn');
+    trainBtn.parent(row);
+    
+    // Count Badge
+    const countBadge = createSpan('0 data');
+    countBadge.addClass('train-count');
+    countBadge.parent(trainBtn);
+
+    // [핵심] 학습 버튼 클릭 시 KNN에 예제 추가
+    trainBtn.mousePressed(() => {
+        addExample(currentId); 
+        
+        // 클릭 애니메이션
+        trainBtn.style('background', '#e0e0e0');
+        setTimeout(() => trainBtn.style('background', '#f8f9fa'), 100);
+    });
+
+    // Delete Button
+    const delBtn = createButton('×');
+    delBtn.addClass('delete-class-btn');
+    delBtn.parent(row);
+    delBtn.mousePressed(() => {
+        if(confirm(`[ID ${currentId}: ${className}] 클래스를 삭제하시겠습니까?`)) {
+            knnClassifier.clearLabel(currentId); // 해당 라벨 데이터 삭제
+            row.remove();
+        }
+    });
+
+    classInput.value('');
 }
 
-function initializeModel() {
-  let inputVal = modelInput.value().trim();
-  let finalModelURL = "";
-  
-  if (!inputVal) {
-    alert('모델 주소 또는 ID를 입력하세요!');
-    return;
-  }
+function addExample(labelId) {
+    if (!isModelReady || !isVideoLoaded) {
+      console.warn("Model or Video not ready");
+      return;
+    }
 
-  if (inputVal.startsWith('http')) {
-      finalModelURL = inputVal;
-  } else {
-      finalModelURL = "https://teachablemachine.withgoogle.com/models/" + inputVal + "/";
-  }
-
-  if (!finalModelURL.endsWith('model.json')) {
-      if (!finalModelURL.endsWith('/')) {
-          finalModelURL += '/';
-      }
-      finalModelURL += 'model.json';
-  }
-
-  if (modelStatusDiv) {
-      modelStatusDiv.html("모델을 불러오는 중입니다...");
-      modelStatusDiv.style("color", "#666");
-      modelStatusDiv.style("background-color", "#F1F3F4");
-  }
-
-  console.log("Loading model from:", finalModelURL);
-
-  try {
-    classifier = ml5.imageClassifier(finalModelURL, modelLoaded);
-  } catch (e) {
-      console.error(e);
-      if (modelStatusDiv) modelStatusDiv.html("모델 로드 실패. 주소나 ID를 확인해주세요.");
-  }
+    // [중요] 캔버스의 현재 이미지를 특징으로 변환하여 KNN에 추가
+    // 캔버스 자체를 넘겨주면, draw()에서 그려진 Square Crop된 이미지가 학습됨
+    const features = featureExtractor.infer(canvas);
+    knnClassifier.addExample(features, labelId);
+    
+    updateButtonCount(labelId);
 }
 
-function modelLoaded() {
-  console.log('모델 로드 완료');
-  if (modelStatusDiv) {
-      modelStatusDiv.html("모델이 성공적으로 로드되었습니다!");
-      modelStatusDiv.style("color", "#137333");
-      modelStatusDiv.style("background-color", "#E6F4EA");
-  }
-  label = "준비됨";
-  startClassification();
+function updateButtonCount(labelId) {
+    const count = knnClassifier.getCountByLabel()[labelId];
+    const buttons = document.querySelectorAll('.train-btn');
+    buttons.forEach(btn => {
+        if (btn.innerText.includes(`ID ${labelId}`)) {
+            const badge = btn.querySelector('.train-count');
+            if(badge) badge.innerText = `${count} data`;
+        }
+    });
 }
 
-function startClassification() {
-  if (!classifier) {
-    console.error('모델이 로드되지 않았습니다.');
-    return;
-  }
-  isClassifying = true;
-  classifyVideo();
+function resetModel() {
+    if(confirm("모든 학습 데이터를 삭제하시겠습니까?")) {
+        knnClassifier.clearAllLabels();
+        idToNameMap = {};
+        nextClassId = 1;
+        
+        classListContainer.html(''); 
+        resultLabel.html("데이터 없음");
+        resultConfidence.html("");
+        btDataDisplay.html("전송 데이터: 대기 중...");
+        btDataDisplay.style('color', '#666');
+        
+        stopClassify(); 
+    }
 }
 
-function stopClassification() {
-  isClassifying = false;
-  label = "중지됨";
-  sendBluetoothData("stop");
-  if (modelStatusDiv) {
-      modelStatusDiv.html("모델 분류가 중지되었습니다.");
-      modelStatusDiv.style("color", "#333");
-      modelStatusDiv.style("background-color", "#F1F3F4");
-  }
+// === Logic: Classification Control ===
+
+function startClassify() {
+    if (knnClassifier.getNumLabels() <= 0) {
+        alert("먼저 학습 데이터를 추가해주세요!");
+        return;
+    }
+    if (!isPredicting) {
+        isPredicting = true;
+        classify(); 
+    }
 }
 
-function classifyVideo() {
-  if (!isClassifying) return;
-  // [수정] 왜곡 없는 캔버스 화면 자체를 분류 (정확도 향상)
-  // video를 직접 넣으면 원본(4:3)이 들어가서 AI가 찌그러진 상태로 인식할 수 있음
-  classifier.classify(canvas, gotResults);
+function stopClassify() {
+    isPredicting = false;
+    resultLabel.html("중지됨");
+    resultLabel.style('color', '#666');
+    resultConfidence.html("");
+    
+    sendBluetoothData("stop");
+    btDataDisplay.html("전송됨: stop");
+    btDataDisplay.style('color', '#EA4335');
 }
 
-function gotResults(error, results) {
-  if (error) {
-    console.error("분류 오류:", error);
-    return;
-  }
-  if (results && results.length > 0) {
-    label = results[0].label;
-    sendBluetoothData(label);
-  }
-  classifyVideo();
+function classify() {
+    if (!isPredicting) return;
+    if (knnClassifier.getNumLabels() <= 0) return;
+
+    // 현재 캔버스 이미지에서 특징 추출 후 분류
+    const features = featureExtractor.infer(canvas);
+    knnClassifier.classify(features, gotResults);
 }
+
+function gotResults(error, result) {
+    if (error) {
+        console.error(error);
+        return;
+    }
+
+    if (result.confidencesByLabel) {
+        const labelId = result.label;
+        const confidence = result.confidencesByLabel[labelId] * 100;
+        const name = idToNameMap[labelId] || "알 수 없음";
+
+        resultLabel.html(`ID ${labelId} (${name})`);
+        resultLabel.style('color', '#000');
+        resultConfidence.html(`정확도: ${confidence.toFixed(0)}%`);
+
+        if (isPredicting) {
+             // 데이터 전송 (I{id} 포맷)
+             let dataToSend = `I${labelId}`;
+             sendBluetoothData(dataToSend);
+             
+             btDataDisplay.html(`전송됨: ${dataToSend}`);
+             btDataDisplay.style('color', '#0f0');
+        } 
+    }
+
+    if (isPredicting) {
+        // 약간의 딜레이를 주어 과부하 방지 (선택 사항)
+        requestAnimationFrame(classify); 
+    }
+}
+
+// === P5 Draw Loop ===
 
 function draw() {
   background(0);
-  
+
   if (!isVideoLoaded || video.width === 0) {
-    textAlign(CENTER, CENTER);
-    textSize(20);
-    fill(255);
-    text("카메라 로딩 중...", width / 2, height / 2);
-    return;
+      fill(255);
+      textAlign(CENTER);
+      text("카메라 로딩 중...", width/2, height/2);
+      return;
   }
 
-  // [핵심 수정] 센터 크롭 (Center Crop) 로직
-  // 영상의 가로/세로 중 작은 쪽을 기준으로 1:1 비율을 만듦
+  // Center Crop Logic
   let vw = video.width;
   let vh = video.height;
-  let minDim = min(vw, vh); // 정사각형 한 변의 길이
+  let minDim = min(vw, vh); // 정사각형 한 변
   
-  // 영상의 정중앙 좌표 계산
   let sx = (vw - minDim) / 2;
   let sy = (vh - minDim) / 2;
 
@@ -280,26 +332,9 @@ function draw() {
     translate(width, 0);
     scale(-1, 1);
   }
-  
-  // image(원본, 캔버스x, 캔버스y, 캔버스w, 캔버스h, 원본x, 원본y, 원본w, 원본h)
-  // 원본 영상의 중앙(sx, sy)에서 정사각형(minDim)만큼 잘라내어 캔버스(400x400)에 꽉 차게 그림
+  // 캔버스(400x400)에 꽉 차게 중앙 크롭하여 그리기
   image(video, 0, 0, width, height, sx, sy, minDim, minDim);
   pop();
-
-  // 결과 표시 바
-  const boxHeight = 50;
-  fill(0, 0, 0, 180);
-  noStroke();
-  rect(0, height - boxHeight, width, boxHeight);
-  
-  textSize(24);
-  textAlign(CENTER, CENTER);
-  fill(255);
-  text(label, width / 2, height - (boxHeight/2));
-}
-
-function resizeCanvasToFit() {
-  resizeCanvas(400, 400);
 }
 
 /* --- Bluetooth Logic --- */
@@ -321,7 +356,7 @@ async function connectBluetooth() {
     updateBluetoothStatusUI(true);
     
   } catch (error) {
-    console.error("Bluetooth connection failed:", error);
+    console.error("Connection failed", error);
     bluetoothStatus = "연결 실패";
     updateBluetoothStatusUI(false, true);
   }
