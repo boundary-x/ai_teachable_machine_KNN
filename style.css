@@ -1,4 +1,4 @@
-/* style.css - Boundary X: AI Model Training (KNN) */
+/* style.css - Boundary X: AI Model Training (KNN with Overlay Badge) */
 
 :root {
   /* Palette */
@@ -64,7 +64,7 @@ header {
   width: auto;
 }
 
-/* [NEW] KNN Badge Style */
+/* KNN Badge Style */
 .knn-badge {
   display: inline-block;
   background-color: #FFFFFF;
@@ -72,7 +72,7 @@ header {
   font-size: 0.8rem;
   font-weight: 800;
   padding: 2px 8px;
-  border-radius: 6px; /* 둥근 네모 */
+  border-radius: 6px;
   margin-left: 4px;
   vertical-align: middle;
   line-height: 1.4;
@@ -108,16 +108,16 @@ main {
   gap: 2rem;
 }
 
-/* Canvas Container (Square Ratio for Image Model) */
+/* Canvas Container */
 .canvas-container { 
     width: 100%;
     max-width: 400px;
-    aspect-ratio: 1/1; /* 정사각형 비율 */
+    aspect-ratio: 1/1; /* 정사각형 */
     border-radius: var(--radius-card);
     overflow: hidden;
     background: #000;
     box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-    position: relative;
+    position: relative; /* 자식의 absolute 포지셔닝 기준점 */
     flex-shrink: 0;
 }
 
@@ -127,6 +127,32 @@ canvas {
     height: 100% !important; 
     object-fit: contain; 
 }
+
+/* [추가] 카메라 오버레이 뱃지 스타일 */
+.camera-badge {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%); /* 가운데 정렬 */
+    z-index: 10; /* 캔버스 위에 뜨도록 */
+    
+    background-color: rgba(0, 0, 0, 0.6); /* 반투명 검정 배경 */
+    color: #ffffff;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    transition: all 0.2s ease;
+    pointer-events: none; /* 클릭 통과 */
+}
+
+/* 정확도가 높을 때 뱃지 스타일 (JS에서 추가) */
+.camera-badge.high-confidence {
+    background-color: rgba(19, 115, 51, 0.85); /* 성공 초록색 */
+}
+
 
 .controls {
   width: 100%;
