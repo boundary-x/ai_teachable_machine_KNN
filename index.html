@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>바운더리엑스 AI 모델학습</title>
+  <title>바운더리엑스 AI 모델학습(KNN)</title>
   
   <link rel="icon" href="https://raw.githubusercontent.com/boundary-x/ai_teachable_machine/refs/heads/main/Favicon.png"/> 
   
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/p5.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/addons/p5.dom.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/addons/p5.sound.min.js"></script>
-  <script src="https://unpkg.com/ml5@0.5.0/dist/ml5.min.js"></script>
+  
+  <script src="https://unpkg.com/ml5@0.12.2/dist/ml5.min.js"></script>
   
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css" />
   <link rel="stylesheet" type="text/css" href="style.css">
@@ -22,7 +22,7 @@
       <a href="https://boundaryx.io">
         <img src="https://raw.githubusercontent.com/boundary-x/ai_voice_recognition/refs/heads/main/boundaryx_logo.png" alt="Logo">
       </a>
-      AI 모델학습
+      AI 모델학습 <span class="knn-badge">KNN</span>
     </div>
     <a href="https://boundaryx.io/59" class="back-button">돌아가기</a>
   </header>
@@ -33,6 +33,30 @@
     <section class="controls">
       
       <div class="control-group">
+        <h3>학습 ID 추가</h3>
+        <p>학습할 사물의 이름(예: 사과)을 입력하고 추가 버튼을 눌러 이미지를 학습시키세요.</p>
+        
+        <div class="input-group">
+          <input type="text" id="class-input" placeholder="이름 입력 (예: 컵)">
+          <button id="add-class-btn" class="add-button">추가</button>
+        </div>
+
+        <div id="class-list" class="class-list-container"></div>
+        
+        <button id="reset-model-btn" class="reset-button">🗑️ 모델 초기화</button>
+      </div>
+
+      <div class="control-group">
+        <h3>🧠 AI 판단 결과</h3>
+        <div class="data-info-box">
+          <p class="info-title"><strong>인식 결과</strong></p>
+          <div id="result-label" class="ai-result">데이터 없음</div>
+          <div id="result-confidence" class="ai-confidence">정확도: 0%</div>
+        </div>
+        <div id="bluetooth-data-display" class="data-display">전송 데이터: 대기 중...</div>
+      </div>
+
+      <div class="control-group">
         <h3>1. 카메라 설정</h3>
         <p>카메라 버튼을 통해 화면을 설정해주세요.</p>
         <div id="camera-control-buttons" class="button-group"></div>
@@ -41,19 +65,14 @@
       <div class="control-group">
         <h3>2. 기기 연결</h3>
         <p>블루투스 연결 버튼을 클릭해 마이크로비트를 연결해주세요.</p>
-        <div id="bluetoothStatus">상태: 연결 대기 중</div>
+        <div id="bluetoothStatus" style="margin-top: 10px;">상태: 연결 대기 중</div>
         <div id="bluetooth-control-buttons" class="button-group" style="margin-top: 1.5rem;"></div>
       </div>
 
       <div class="control-group">
-        <h3>3. AI 모델 로드</h3>
-        <p>Teachable Machine 모델 전체 주소를 입력하고 로드해주세요.</p>
-        
-        <div id="model-select-and-link" class="model-selection"></div>
-        
-        <div id="model-key-container" class="model-key" style="margin-top: 10px; margin-bottom: 15px;"></div>
-        
-        <div id="model-action-buttons" class="button-group"></div>
+        <h3>3. AI 인식 제어</h3>
+        <p>시작 버튼을 눌러 AI 인식 및 데이터 전송을 시작하세요.</p>
+        <div id="recognition-control-buttons" class="button-group"></div>
       </div>
 
     </section>
