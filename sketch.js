@@ -1,7 +1,7 @@
 /**
  * sketch.js
- * Boundary X: AI Model Training (KNN Version)
- * Features: MobileNet Feature Extraction + KNN, Real-time Learning
+ * Boundary X: AI Model Training (KNN Version with Overlay Badge)
+ * Updated Protocol: ID{num} (e.g., ID1, ID2)
  */
 
 // Bluetooth UUIDs
@@ -30,6 +30,7 @@ let idToNameMap = {};
 // DOM Elements
 let classInput, addClassBtn, classListContainer, resetBtn;
 let resultLabel, resultConfidence, btDataDisplay;
+let cameraResultBadge; 
 let flipButton, switchCameraButton, connectBluetoothButton, disconnectBluetoothButton;
 let startRecognitionButton, stopRecognitionButton; 
 let canvas;
@@ -40,11 +41,9 @@ let isFlipped = false;
 let isVideoLoaded = false;
 
 function setup() {
-  // 1:1 정사각형 캔버스 생성
   canvas = createCanvas(400, 400);
   canvas.parent('p5-container');
   
-  // MobileNet 특징 추출기 로드
   featureExtractor = ml5.featureExtractor('MobileNet', modelReady);
   knnClassifier = ml5.KNNClassifier();
 
@@ -67,7 +66,6 @@ function setupCamera() {
   video = createCapture(constraints);
   video.hide();
 
-  // 비디오 로드 확인
   let videoLoadCheck = setInterval(() => {
     if (video.elt.readyState >= 2 && video.width > 0) {
       isVideoLoaded = true;
@@ -88,7 +86,6 @@ function stopVideo() {
 }
 
 function createUI() {
-  // DOM Selectors
   classInput = select('#class-input');
   addClassBtn = select('#add-class-btn');
   classListContainer = select('#class-list');
@@ -98,7 +95,8 @@ function createUI() {
   resultConfidence = select('#result-confidence');
   btDataDisplay = select('#bluetooth-data-display');
 
-  // Input Events
+  cameraResultBadge = select('#camera-result-badge');
+
   addClassBtn.mousePressed(addNewClass);
   classInput.elt.addEventListener("keypress", (e) => {
       if (e.key === "Enter") addNewClass();
@@ -106,7 +104,6 @@ function createUI() {
   
   resetBtn.mousePressed(resetModel);
 
-  // 1. Camera Buttons
   flipButton = createButton("좌우 반전");
   flipButton.parent('camera-control-buttons');
   flipButton.addClass('start-button');
@@ -117,7 +114,6 @@ function createUI() {
   switchCameraButton.addClass('start-button');
   switchCameraButton.mousePressed(switchCamera);
 
-  // 2. Bluetooth Buttons
   connectBluetoothButton = createButton("기기 연결");
   connectBluetoothButton.parent('bluetooth-control-buttons');
   connectBluetoothButton.addClass('start-button');
@@ -128,7 +124,6 @@ function createUI() {
   disconnectBluetoothButton.addClass('stop-button');
   disconnectBluetoothButton.mousePressed(disconnectBluetooth);
 
-  // 3. Recognition Control Buttons
   startRecognitionButton = createButton("인식 시작");
   startRecognitionButton.parent('recognition-control-buttons');
   startRecognitionButton.addClass('start-button');
@@ -161,12 +156,10 @@ function addNewClass() {
     const currentId = String(nextClassId++);
     idToNameMap[currentId] = className; 
 
-    // UI Row
     const row = createDiv('');
     row.addClass('train-btn-row');
     row.parent(classListContainer);
 
-    // Train Button
     const trainBtn = createButton(
         `<span class="id-badge">ID ${currentId}</span>
          <span class="train-text">${className}</span>`
@@ -174,27 +167,22 @@ function addNewClass() {
     trainBtn.addClass('train-btn');
     trainBtn.parent(row);
     
-    // Count Badge
     const countBadge = createSpan('0 data');
     countBadge.addClass('train-count');
     countBadge.parent(trainBtn);
 
-    // [핵심] 학습 버튼 클릭 시 KNN에 예제 추가
     trainBtn.mousePressed(() => {
         addExample(currentId); 
-        
-        // 클릭 애니메이션
         trainBtn.style('background', '#e0e0e0');
         setTimeout(() => trainBtn.style('background', '#f8f9fa'), 100);
     });
 
-    // Delete Button
     const delBtn = createButton('×');
     delBtn.addClass('delete-class-btn');
     delBtn.parent(row);
     delBtn.mousePressed(() => {
         if(confirm(`[ID ${currentId}: ${className}] 클래스를 삭제하시겠습니까?`)) {
-            knnClassifier.clearLabel(currentId); // 해당 라벨 데이터 삭제
+            knnClassifier.clearLabel(currentId);
             row.remove();
         }
     });
@@ -203,16 +191,9 @@ function addNewClass() {
 }
 
 function addExample(labelId) {
-    if (!isModelReady || !isVideoLoaded) {
-      console.warn("Model or Video not ready");
-      return;
-    }
-
-    // [중요] 캔버스의 현재 이미지를 특징으로 변환하여 KNN에 추가
-    // 캔버스 자체를 넘겨주면, draw()에서 그려진 Square Crop된 이미지가 학습됨
+    if (!isModelReady || !isVideoLoaded) return;
     const features = featureExtractor.infer(canvas);
     knnClassifier.addExample(features, labelId);
-    
     updateButtonCount(labelId);
 }
 
@@ -232,7 +213,6 @@ function resetModel() {
         knnClassifier.clearAllLabels();
         idToNameMap = {};
         nextClassId = 1;
-        
         classListContainer.html(''); 
         resultLabel.html("데이터 없음");
         resultConfidence.html("");
@@ -252,6 +232,8 @@ function startClassify() {
     }
     if (!isPredicting) {
         isPredicting = true;
+        cameraResultBadge.style('display', 'block');
+        cameraResultBadge.html('인식 중...');
         classify(); 
     }
 }
@@ -265,13 +247,16 @@ function stopClassify() {
     sendBluetoothData("stop");
     btDataDisplay.html("전송됨: stop");
     btDataDisplay.style('color', '#EA4335');
+
+    if(cameraResultBadge) {
+        cameraResultBadge.style('display', 'none');
+        cameraResultBadge.removeClass('high-confidence');
+    }
 }
 
 function classify() {
     if (!isPredicting) return;
     if (knnClassifier.getNumLabels() <= 0) return;
-
-    // 현재 캔버스 이미지에서 특징 추출 후 분류
     const features = featureExtractor.infer(canvas);
     knnClassifier.classify(features, gotResults);
 }
@@ -291,9 +276,18 @@ function gotResults(error, result) {
         resultLabel.style('color', '#000');
         resultConfidence.html(`정확도: ${confidence.toFixed(0)}%`);
 
+        const badgeText = `ID ${labelId} (${name}) | ${confidence.toFixed(0)}%`;
+        cameraResultBadge.html(badgeText);
+        
+        if (confidence > 60) {
+            cameraResultBadge.addClass('high-confidence');
+        } else {
+            cameraResultBadge.removeClass('high-confidence');
+        }
+
         if (isPredicting) {
-             // 데이터 전송 (I{id} 포맷)
-             let dataToSend = `I${labelId}`;
+             // [수정] 데이터 전송 포맷 변경: ID + 숫자 (ex: ID1)
+             let dataToSend = `ID${labelId}`;
              sendBluetoothData(dataToSend);
              
              btDataDisplay.html(`전송됨: ${dataToSend}`);
@@ -302,7 +296,6 @@ function gotResults(error, result) {
     }
 
     if (isPredicting) {
-        // 약간의 딜레이를 주어 과부하 방지 (선택 사항)
         requestAnimationFrame(classify); 
     }
 }
@@ -319,10 +312,9 @@ function draw() {
       return;
   }
 
-  // Center Crop Logic
   let vw = video.width;
   let vh = video.height;
-  let minDim = min(vw, vh); // 정사각형 한 변
+  let minDim = min(vw, vh); 
   
   let sx = (vw - minDim) / 2;
   let sy = (vh - minDim) / 2;
@@ -332,7 +324,6 @@ function draw() {
     translate(width, 0);
     scale(-1, 1);
   }
-  // 캔버스(400x400)에 꽉 차게 중앙 크롭하여 그리기
   image(video, 0, 0, width, height, sx, sy, minDim, minDim);
   pop();
 }
