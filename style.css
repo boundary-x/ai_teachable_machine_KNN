@@ -1,4 +1,4 @@
-/* style.css - Boundary X: AI Model Training (Black Badge Fixed) */
+/* style.css - Boundary X: AI Model Training (Responsive & Sticky) */
 
 :root {
   /* Palette */
@@ -48,6 +48,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 100;
+  transition: padding 0.3s ease;
 }
 
 .title {
@@ -57,11 +58,13 @@ header {
   display: flex;
   align-items: center;
   gap: 12px;
+  transition: font-size 0.3s ease;
 }
 
 .title img {
   height: 28px;
   width: auto;
+  transition: height 0.3s ease;
 }
 
 /* KNN Badge Style */
@@ -128,7 +131,7 @@ canvas {
     object-fit: contain; 
 }
 
-/* [수정됨] 카메라 오버레이 뱃지 스타일 (Black) */
+/* 카메라 오버레이 뱃지 스타일 (Black) */
 .camera-badge {
     position: absolute;
     top: 15px;
@@ -136,7 +139,7 @@ canvas {
     transform: translateX(-50%); /* 가운데 정렬 */
     z-index: 10; 
     
-    background-color: #000000; /* [수정] 완전 검정색 배경 */
+    background-color: #000000; 
     color: #ffffff;
     padding: 6px 16px;
     border-radius: 20px;
@@ -147,12 +150,6 @@ canvas {
     transition: all 0.2s ease;
     pointer-events: none; 
 }
-
-/* 정확도가 높아도 색상 변경 없음 (항상 검정) */
-.camera-badge.high-confidence {
-    /* background-color: ... (삭제됨) */
-}
-
 
 .controls {
   width: 100%;
@@ -389,6 +386,10 @@ button {
   background-color: #E6F4EA !important;
   color: var(--success) !important;
 }
+.status-error {
+  background-color: #FCE8E6 !important;
+  color: var(--danger) !important;
+}
 
 /* Footer */
 footer {
@@ -492,7 +493,9 @@ address {
   color: #666;
 }
 
-/* PC & Tablet Layout */
+/* --- RESPONSIVE LAYOUT SYSTEM --- */
+
+/* 1. PC & Tablet Layout (PC) */
 @media (min-width: 768px) {
   main {
     flex-direction: row;       
@@ -510,54 +513,21 @@ address {
   .controls { flex: 1; }
 }
 
-/* Mobile Layout */
+/* 2. Mobile Common Styles (Typography & Sizes) */
 @media (max-width: 767px) {
-  main { 
-    padding: 1rem 1rem !important; 
-    gap: 1rem !important;
-    overflow: visible !important; 
-  }
-
   /* 로고 축소 */
   .title { font-size: 1rem !important; }
   .title img { height: 22px !important; }
   .knn-badge { font-size: 0.7rem !important; padding: 1px 6px !important; }
 
-  /* 카메라 축소 */
-  .canvas-container {
-    position: relative !important; 
-    top: auto !important;          
-    width: 100% !important;            
-    max-width: 260px !important; 
-    margin: 0 auto !important;   
-    margin-bottom: 10px !important;    
-  }
-
-  .controls { 
-    width: 100%; 
-    padding-bottom: 2rem; 
-  }
-
-  .control-group { padding: 1rem !important; }
+  .control-group { padding: 1.5rem 1rem !important; }
   
-  .sub-group, .button-group { 
-    flex-direction: column !important; 
-  }
-  
-  button { 
-    width: 100% !important; 
-    flex: none !important; 
-  }
-
-  .footer-top { flex-direction: column; gap: 2rem; }
-  .footer-links { gap: 2rem; flex-direction: column; }
-
   /* 컴팩트 UI */
   .input-group {
     display: flex !important;
     flex-wrap: nowrap !important;
     width: 100% !important;
-    gap: 5px !important;
+    gap: 8px !important;
     margin-bottom: 8px !important;
   }
   
@@ -645,4 +615,74 @@ address {
     padding: 0.6rem !important;
     font-size: 14px !important;
   }
+}
+
+/* 3. Mobile Portrait (세로 모드) */
+@media (max-width: 767px) and (orientation: portrait) {
+  header { padding: 0.8rem 1rem; }
+  
+  main { 
+    padding: 1rem !important; 
+    gap: 1.5rem !important;
+    overflow: visible !important;
+  }
+
+  /* [Sticky] 세로 모드 플로팅 적용 */
+  .canvas-container {
+    width: 100% !important;            
+    max-width: 100% !important; 
+    margin: 0 auto !important;   
+    margin-bottom: 10px !important; 
+    
+    position: sticky !important;        
+    top: 70px !important;               
+    z-index: 90;             
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); 
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .controls { width: 100%; padding-bottom: 2rem; }
+  
+  .button-group { flex-direction: column !important; }
+  button { width: 100% !important; flex: none !important; }
+  
+  .footer-top { flex-direction: column; gap: 3rem; }
+  .footer-links { gap: 2.5rem; flex-direction: column; }
+}
+
+/* 4. Mobile Landscape (가로 모드) */
+@media (max-width: 900px) and (orientation: landscape) {
+  header { padding: 0.5rem 1rem; }
+  
+  main {
+    flex-direction: row !important;      /* 좌우 배치 */
+    align-items: flex-start !important;  /* 상단 정렬 (Sticky 필수) */
+    padding: 1rem !important;
+    gap: 1.5rem !important;
+  }
+
+  /* [Sticky] 가로 모드 플로팅 적용 */
+  .canvas-container {
+    position: sticky !important;         
+    top: 80px !important;                /* 헤더 높이만큼 띄움 */
+    z-index: 90;
+    
+    width: 45% !important;    /* 화면 좌측 절반 */
+    min-width: 280px !important;
+    max-width: none !important;
+    margin-bottom: 0 !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
+    flex-shrink: 0;
+  }
+  
+  .controls {
+    flex: 1;                  
+    width: 50%;
+    padding-bottom: 2rem;
+  }
+
+  .button-group { flex-direction: row !important; } 
+  button { flex: 1 !important; }
+
+  footer { display: none; } /* 공간 확보를 위해 푸터 숨김 */
 }
