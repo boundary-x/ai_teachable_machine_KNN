@@ -22,7 +22,7 @@
       <a href="https://boundaryx.io">
         <img src="https://raw.githubusercontent.com/boundary-x/ai_voice_recognition/refs/heads/main/boundaryx_logo.png" alt="Logo">
       </a>
-      AI 이미지분류 <span class="knn-badge">KNN</span>
+      <span class="title-text">AI 이미지분류</span><span class="knn-badge">KNN</span>
     </div>
     <a href="https://boundaryx.io/59" class="back-button">돌아가기</a>
   </header>
@@ -36,16 +36,28 @@
       
       <div class="control-group">
         <h3>학습 ID 추가</h3>
-        <p>학습할 사물의 이름(예: 사과)을 입력하고 추가 버튼을 눌러 이미지를 학습시키세요.</p>
+        <p>ID를 추가하고 학습 버튼을 짧게 누르면 1개, 길게 누르면 연속으로 수집합니다. 인식한 ID가 블루투스로 전송됩니다.</p>
         
         <div class="input-group">
-          <input type="text" id="class-input" placeholder="이름 입력 (예: 컵)">
-          <button id="add-class-btn" class="add-button">추가</button>
+          <button id="add-class-btn" class="add-button">+ 학습 ID 추가</button>
         </div>
 
         <div id="class-list" class="class-list-container"></div>
+        <p id="training-status" class="status-message" role="status" aria-live="polite">AI 모델과 카메라를 준비하고 있습니다.</p>
         
         <button id="reset-model-btn" class="reset-button">🗑️ 데이터 초기화</button>
+      </div>
+
+      <div class="control-group">
+        <h3>모델 저장 · 가져오기</h3>
+        <p>학습한 데이터를 JSON 파일로 보관하거나 공유하세요. 가져오면 현재 데이터를 교체합니다.</p>
+        <div class="button-group model-file-buttons">
+          <button id="download-model-btn" class="start-button" disabled>모델 다운로드</button>
+          <button id="share-model-btn" class="start-button" disabled>파일 공유</button>
+          <button id="import-model-btn" class="stop-button">모델 가져오기</button>
+        </div>
+        <input id="model-file-input" type="file" accept=".json,application/json" hidden>
+        <p id="file-status" class="status-message" role="status" aria-live="polite">원본 사진은 포함되지 않습니다. 파일 공유는 지원하는 기기에서 사용할 수 있습니다.</p>
       </div>
 
       <div class="control-group">
@@ -53,7 +65,7 @@
         <div class="data-info-box">
           <p class="info-title"><strong>인식 결과</strong></p>
           <div id="result-label" class="ai-result">데이터 없음</div>
-          <div id="result-confidence" class="ai-confidence">정확도: 0%</div>
+          <div id="result-confidence" class="ai-confidence">신뢰도: 0%</div>
         </div>
         <div id="bluetooth-data-display" class="data-display">전송 데이터: 대기 중...</div>
       </div>
@@ -121,9 +133,10 @@
     </div>
   </footer>
 
+  <script src="model-file.js"></script>
+  <script src="training-input.js"></script>
   <script src="sketch.js"></script>
 </body>
 </html>
-
 
 

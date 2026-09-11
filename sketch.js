@@ -1,447 +1,411 @@
 /*
- * Boundary X: AI Model Training (KNN)
+ * Boundary X: AI Model Training (KNN) — ml5 0.12.2
  */
-
-// Bluetooth UUIDs
 const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-
-let bluetoothDevice = null;
-let rxCharacteristic = null;
-let txCharacteristic = null;
-let isConnected = false;
-let bluetoothStatus = "연결 대기 중";
-let isSendingData = false;
-
-// ML Variables
-let video;
-let featureExtractor;
-let knnClassifier;
-let isModelReady = false;
-let isPredicting = false; 
-
-// [전송 제어 변수]
-let lastSentData = "";    // 마지막으로 보낸 데이터
-let lastSentTime = 0;     // 마지막 전송 시간
-const SEND_INTERVAL = 500; // 재전송 주기 (ms)
-
-// ID Mapping System
-let idToNameMap = {}; 
-
-
-// DOM Elements
-let classInput, addClassBtn, classListContainer, resetBtn;
-let resultLabel, resultConfidence, btDataDisplay;
-let cameraResultBadge; 
-let flipButton, switchCameraButton, connectBluetoothButton, disconnectBluetoothButton;
-let startRecognitionButton, stopRecognitionButton; 
-let canvas;
-
-// Camera
-let facingMode = "user";
-let isFlipped = false;
-let isVideoLoaded = false;
+const SEND_INTERVAL = 500;
+let bluetoothDevice = null, rxCharacteristic = null;
+let isConnected = false, bluetoothStatus = "연결 대기 중";
+let sendQueue = Promise.resolve();
+let lastSentData = "", lastSentTime = 0;
+let video, canvas, featureExtractor, knnClassifier;
+let isModelReady = false, isVideoLoaded = false, isPredicting = false, isBusy = false;
+let modelLoadFailed = false;
+let predictionEpoch = 0, pendingPrediction = Promise.resolve();
+let classIds = [], nextClassId = 1;
+let isFlipped = false, facingMode = "user", cameraCheck;
+let training;
+const byId = id => document.getElementById(id);
+const setText = (id, value) => { byId(id).textContent = value; };
+function trainingStatus(message) { setText("training-status", message); }
+function fileStatus(message) { setText("file-status", message); }
 
 function setup() {
   canvas = createCanvas(400, 400);
-  canvas.parent('p5-container');
-  
-  featureExtractor = ml5.featureExtractor('MobileNet', modelReady);
+  canvas.parent("p5-container");
   knnClassifier = ml5.KNNClassifier();
-
-  setupCamera();
   createUI();
+  setupCamera();
+  featureExtractor = ml5.featureExtractor("MobileNet", { version: 1, alpha: 0.25 }, () => {
+    isModelReady = true;
+    updateReadyStatus();
+  });
+  featureExtractor.ready.catch(error => {
+    console.error(error);
+    isModelReady = false;
+    modelLoadFailed = true;
+    updateReadyStatus();
+  });
 }
-
-function modelReady() {
-  console.log("MobileNet Feature Extractor Loaded!");
-  isModelReady = true;
-}
-
-function setupCamera() {
-  let constraints = {
-    video: { facingMode: facingMode },
-    audio: false
+function createUI() {
+  training = TrainingInput.createController({
+    collect: addExample,
+    onStart: () => { if (isPredicting) stopClassify(); }
+  });
+  byId("add-class-btn").addEventListener("click", addNewClass);
+  byId("reset-model-btn").addEventListener("click", resetModel);
+  byId("download-model-btn").addEventListener("click", downloadModel);
+  byId("share-model-btn").addEventListener("click", shareModel);
+  byId("import-model-btn").addEventListener("click", () => {
+    training.stop();
+    byId("model-file-input").click();
+  });
+  byId("model-file-input").addEventListener("change", event => importModel(event.target.files[0]));
+  const button = (text, parent, handler, className = "start-button", id) => {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = className;
+    element.textContent = text;
+    if (id) element.id = id;
+    element.addEventListener("click", handler);
+    byId(parent).appendChild(element);
   };
-  video = createCapture(constraints);
+  button("좌우 반전", "camera-control-buttons", () => {
+    training.stop(); stopClassify(); isFlipped = !isFlipped;
+  });
+  button("전후방 전환", "camera-control-buttons", switchCamera);
+  button("기기 연결", "bluetooth-control-buttons", connectBluetooth);
+  button("연결 해제", "bluetooth-control-buttons", disconnectBluetooth, "stop-button");
+  button("인식 시작", "recognition-control-buttons", startClassify, "start-button", "start-recognition-btn");
+  button("인식 중지", "recognition-control-buttons", stopClassify, "stop-button");
+  const suspend = () => { training.stop(); stopClassify(); };
+  window.addEventListener("blur", suspend);
+  window.addEventListener("pagehide", suspend);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) suspend(); });
+  const header = document.querySelector("header");
+  const resizeHeader = () => document.documentElement.style.setProperty("--header-height", header.getBoundingClientRect().height + "px");
+  new ResizeObserver(resizeHeader).observe(header);
+  resizeHeader();
+  updateControls();
+}
+function updateControls() {
+  const ready = isModelReady && isVideoLoaded && !isBusy;
+  document.querySelectorAll(".train-btn").forEach(button => { button.disabled = !ready; });
+  document.querySelectorAll(".delete-class-btn, #add-class-btn, #reset-model-btn, #import-model-btn, #camera-control-buttons button")
+    .forEach(button => { button.disabled = isBusy; });
+  const hasSamples = knnClassifier.getNumLabels() > 0;
+  byId("download-model-btn").disabled = isBusy || !hasSamples;
+  byId("share-model-btn").disabled = isBusy || !hasSamples;
+  byId("start-recognition-btn").disabled = !ready || !hasSamples;
+}
+function updateReadyStatus() {
+  trainingStatus(modelLoadFailed
+    ? "AI 모델을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 새로고침해주세요."
+    : isModelReady && isVideoLoaded
+    ? "짧게 누르면 1개, 길게 누르면 연속 학습합니다."
+    : !isVideoLoaded ? "카메라 권한과 연결을 확인해주세요. 카메라를 준비하고 있습니다."
+    : "AI 모델을 불러오고 있습니다.");
+  updateControls();
+}
+function setupCamera() {
+  clearInterval(cameraCheck);
+  isVideoLoaded = false;
+  video = createCapture({ video: { facingMode }, audio: false });
+  video.elt.setAttribute("playsinline", "");
+  video.elt.muted = true;
   video.hide();
-
-  let videoLoadCheck = setInterval(() => {
-    if (video.elt.readyState >= 2 && video.width > 0) {
+  cameraCheck = setInterval(() => {
+    if (video && video.elt.readyState >= 2 && video.width > 0) {
       isVideoLoaded = true;
-      clearInterval(videoLoadCheck);
-      console.log(`Video Stream Ready: ${video.width}x${video.height}`);
+      clearInterval(cameraCheck);
+      updateReadyStatus();
     }
   }, 100);
+  updateControls();
 }
-
-function stopVideo() {
-    if (video) {
-        if (video.elt.srcObject) {
-            video.elt.srcObject.getTracks().forEach(track => track.stop());
-        }
-        video.remove();
-        video = null;
-    }
-}
-
-function createUI() {
-  classInput = select('#class-input');
-  addClassBtn = select('#add-class-btn');
-  classListContainer = select('#class-list');
-  resetBtn = select('#reset-model-btn');
-  
-  resultLabel = select('#result-label');
-  resultConfidence = select('#result-confidence');
-  btDataDisplay = select('#bluetooth-data-display');
-  cameraResultBadge = select('#camera-result-badge');
-
-  addClassBtn.mousePressed(addNewClass);
-  classInput.elt.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") addNewClass();
-  });
-  
-  resetBtn.mousePressed(resetModel);
-
-  // Camera Controls
-  flipButton = createButton("좌우 반전");
-  flipButton.parent('camera-control-buttons');
-  flipButton.addClass('start-button');
-  flipButton.mousePressed(() => isFlipped = !isFlipped);
-
-  switchCameraButton = createButton("전후방 전환");
-  switchCameraButton.parent('camera-control-buttons');
-  switchCameraButton.addClass('start-button');
-  switchCameraButton.mousePressed(switchCamera);
-
-  // Bluetooth Controls
-  connectBluetoothButton = createButton("기기 연결");
-  connectBluetoothButton.parent('bluetooth-control-buttons');
-  connectBluetoothButton.addClass('start-button');
-  connectBluetoothButton.mousePressed(connectBluetooth);
-
-  disconnectBluetoothButton = createButton("연결 해제");
-  disconnectBluetoothButton.parent('bluetooth-control-buttons');
-  disconnectBluetoothButton.addClass('stop-button');
-  disconnectBluetoothButton.mousePressed(disconnectBluetooth);
-
-  // Recognition Controls
-  startRecognitionButton = createButton("인식 시작");
-  startRecognitionButton.parent('recognition-control-buttons');
-  startRecognitionButton.addClass('start-button');
-  startRecognitionButton.mousePressed(startClassify);
-
-  stopRecognitionButton = createButton("인식 중지");
-  stopRecognitionButton.parent('recognition-control-buttons');
-  stopRecognitionButton.addClass('stop-button');
-  stopRecognitionButton.mousePressed(stopClassify);
-
-  updateBluetoothStatusUI();
-}
-
 function switchCamera() {
-  stopVideo();
+  if (isBusy) return;
+  training.stop();
+  stopClassify();
+  clearInterval(cameraCheck);
   isVideoLoaded = false;
+  if (video) {
+    if (video.elt.srcObject) video.elt.srcObject.getTracks().forEach(track => track.stop());
+    video.remove();
+    video = null;
+  }
   facingMode = facingMode === "user" ? "environment" : "user";
-  setTimeout(setupCamera, 500);
+  setupCamera();
 }
-
-// === Logic: Class Management (ID Recycling) ===
-
-
-function getNextId() {
-    let id = 1;
-    while (idToNameMap.hasOwnProperty(String(id))) {
-        id++;
-    }
-    return String(id);
-}
-
 function addNewClass() {
-    const className = classInput.value().trim();
-    if (className === "") {
-        alert("이름을 입력해주세요.");
-        return;
-    }
-
-    // [UPDATED] getNextId 함수를 사용하여 ID 생성
-    const currentId = getNextId();
-    idToNameMap[currentId] = className; 
-
-    const row = createDiv('');
-    row.addClass('train-btn-row');
-    row.parent(classListContainer);
-
-    // 버튼 생성 시 ID와 이름을 함께 표시
-    const trainBtn = createButton(
-        `<span class="id-badge">ID ${currentId}</span>
-         <span class="train-text">${className}</span>`
-    );
-    trainBtn.addClass('train-btn');
-    trainBtn.attribute('data-id', currentId); // [FIX] 정확한 버튼 매칭을 위한 data 속성
-    trainBtn.parent(row);
-
-    const countBadge = createSpan('0 data');
-    countBadge.addClass('train-count');
-    countBadge.parent(trainBtn);
-
-    trainBtn.mousePressed(() => {
-        const success = addExample(currentId);
-        // [FIX] 실제로 데이터가 추가된 경우에만 성공 피드백(배경색 깜빡임)을 표시
-        if (success) {
-            trainBtn.style('background', '#e0e0e0');
-            setTimeout(() => trainBtn.style('background', '#f8f9fa'), 100);
-        }
-    });
-
-    const delBtn = createButton('×');
-    delBtn.addClass('delete-class-btn');
-    delBtn.parent(row);
-    delBtn.mousePressed(() => {
-        if(confirm(`[ID ${currentId}: ${className}] 클래스를 삭제하시겠습니까?`)) {
-            knnClassifier.clearLabel(currentId);
-            delete idToNameMap[currentId]; // 맵에서 삭제하여 ID 반납
-            row.remove();
-        }
-    });
-
-    classInput.value('');
+  if (isBusy) return;
+  if (classIds.length >= ModelFile.MAX_CLASSES || nextClassId >= Number.MAX_SAFE_INTEGER - 1) {
+    trainingStatus("ID는 최대 100개까지 추가할 수 있습니다."); return;
+  }
+  const id = String(nextClassId++);
+  classIds.push(id);
+  renderClass(id);
+  updateControls();
 }
-
-function addExample(labelId) {
-    // [FIX] 실패 사유를 사용자에게 알려주고, 성공 여부(true/false)를 반환하도록 변경
-    if (!isModelReady) {
-        alert("AI 모델을 아직 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
-        return false;
-    }
-    if (!isVideoLoaded) {
-        alert("카메라가 아직 준비되지 않았습니다. 카메라 권한 및 연결 상태를 확인해주세요.");
-        return false;
-    }
-
-    const features = featureExtractor.infer(canvas);
-    knnClassifier.addExample(features, labelId);
-    updateButtonCount(labelId);
+function renderClass(id) {
+  const row = document.createElement("div");
+  row.className = "train-btn-row";
+  row.dataset.id = id;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "train-btn";
+  button.dataset.id = id;
+  button.setAttribute("aria-label", "ID" + id + " 학습: 짧게 누르면 1개, 길게 누르면 연속 수집");
+  for (const [className, text] of [["id-badge", "ID" + id], ["train-text", "학습하기"], ["train-count", "0개"]]) {
+    const span = document.createElement("span");
+    span.className = className; span.textContent = text; button.appendChild(span);
+  }
+  training.bind(button, id);
+  row.appendChild(button);
+  const remove = document.createElement("button");
+  remove.type = "button"; remove.className = "delete-class-btn"; remove.textContent = "×";
+  remove.setAttribute("aria-label", "ID" + id + " 삭제");
+  remove.addEventListener("click", () => deleteClass(id));
+  row.appendChild(remove);
+  byId("class-list").appendChild(row);
+  updateButtonCount(id);
+}
+function updateButtonCount(id) {
+  const button = document.querySelector('.train-btn[data-id="' + id + '"]');
+  if (button) button.querySelector(".train-count").textContent = (knnClassifier.getCountByLabel()[id] || 0) + "개";
+}
+function addExample(id) {
+  if (isBusy || !isModelReady || !isVideoLoaded || !video || !classIds.includes(id)) return false;
+  if (isPredicting) stopClassify();
+  const counts = knnClassifier.getCountByLabel();
+  if ((counts[id] || 0) >= ModelFile.MAX_PER_CLASS ||
+      Object.values(counts).reduce((sum, count) => sum + count, 0) >= ModelFile.MAX_SAMPLES) {
+    trainingStatus("학습 한도에 도달했습니다. ID당 500개, 전체 2,000개까지 수집할 수 있습니다.");
+    return false;
+  }
+  let features;
+  try {
+    draw();
+    features = featureExtractor.infer(canvas);
+    knnClassifier.addExample(features, id);
+    updateButtonCount(id);
+    updateControls();
+    trainingStatus("ID" + id + " · " + knnClassifier.getCountByLabel()[id] + "개 수집됨");
     return true;
+  } catch (error) {
+    console.error(error);
+    trainingStatus("샘플 수집에 실패했습니다. 카메라 상태를 확인해주세요.");
+    return false;
+  } finally {
+    if (features) features.dispose();
+  }
 }
-
-function updateButtonCount(labelId) {
-    const count = knnClassifier.getCountByLabel()[labelId];
-    // [FIX] innerText 부분 일치(includes) 대신 data-id 속성으로 정확히 매칭
-    // (기존 방식은 ID 1 버튼이 ID 10, ID 11 등과도 매칭되는 버그가 있었음)
-    const btn = document.querySelector(`.train-btn[data-id="${labelId}"]`);
-    if (btn) {
-        const badge = btn.querySelector('.train-count');
-        if (badge) badge.innerText = `${count} data`;
+async function pauseForChange() {
+  training.stop();
+  stopClassify();
+  await pendingPrediction;
+}
+async function deleteClass(id) {
+  if (isBusy) return;
+  training.stop();
+  if (!confirm("ID" + id + "와 해당 학습 데이터를 삭제할까요?")) return;
+  isBusy = true; updateControls();
+  try {
+    await pauseForChange();
+    if (knnClassifier.getCountByLabel()[id]) knnClassifier.clearLabel(id);
+    classIds = classIds.filter(item => item !== id);
+    document.querySelector('.train-btn-row[data-id="' + id + '"]').remove();
+    setText("result-label", "데이터 변경됨");
+    trainingStatus("ID" + id + "를 삭제했습니다. 다른 ID 번호는 유지됩니다.");
+  } finally { isBusy = false; updateControls(); }
+}
+async function resetModel() {
+  if (isBusy) return;
+  training.stop();
+  if (!confirm("모든 ID와 학습 데이터를 초기화할까요?")) return;
+  isBusy = true; updateControls();
+  try {
+    await pauseForChange();
+    knnClassifier.clearAllLabels();
+    classIds = []; nextClassId = 1;
+    byId("class-list").replaceChildren();
+    setText("result-label", "데이터 없음");
+    trainingStatus("초기화했습니다. ID1부터 추가할 수 있습니다.");
+    fileStatus("학습한 뒤 모델을 다운로드하거나 공유하세요.");
+  } finally { isBusy = false; updateControls(); }
+}
+function makeModelFile() {
+  training.stop();
+  const model = ModelFile.serialize(knnClassifier, classIds, nextClassId, isFlipped);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = new File([JSON.stringify(model)], "boundary-x-knn-" + stamp + ".json", { type: "application/json" });
+  if (file.size > ModelFile.MAX_BYTES) throw new Error("파일이 32MB를 초과합니다. 학습 데이터를 줄여주세요.");
+  return file;
+}
+function downloadFile(file) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url; link.download = file.name; link.hidden = true;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function downloadModel() {
+  if (isBusy) return;
+  try {
+    downloadFile(makeModelFile());
+    fileStatus("JSON 다운로드를 요청했습니다. 브라우저의 다운로드 또는 파일 앱을 확인해주세요.");
+  } catch (error) { fileStatus(error.message); }
+}
+async function shareModel() {
+  if (isBusy) return;
+  try {
+    // Synchronous file construction preserves the click's user activation for share().
+    const file = makeModelFile();
+    if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+      downloadFile(file);
+      fileStatus("이 브라우저는 JSON 파일 공유를 지원하지 않아 다운로드했습니다. 파일을 메일 등에 첨부해주세요.");
+      return;
     }
+    isBusy = true; updateControls();
+    await navigator.share({ files: [file], title: "Boundary X 학습 모델" });
+    fileStatus("공유 앱에 파일을 전달했습니다. 최종 전송 여부는 선택한 앱에서 확인해주세요.");
+  } catch (error) {
+    fileStatus(error.name === "AbortError" ? "공유를 취소했습니다."
+      : "파일을 공유하지 못했습니다. ‘모델 다운로드’로 저장한 뒤 첨부해주세요.");
+  } finally { isBusy = false; updateControls(); }
 }
-
-function resetModel() {
-    if(confirm("모든 학습 데이터를 삭제하시겠습니까?")) {
-        knnClassifier.clearAllLabels();
-        idToNameMap = {};
-        // nextClassId 초기화 불필요 (getNextId가 알아서 1부터 찾음)
-        lastSentData = "";
-        
-        classListContainer.html(''); 
-        resultLabel.html("데이터 없음");
-        resultConfidence.html("");
-        btDataDisplay.html("전송 데이터: 대기 중...");
-        btDataDisplay.style('color', '#666');
-        
-        stopClassify(); 
+async function importModel(file) {
+  if (!file || isBusy) return;
+  isBusy = true; training.stop(); updateControls();
+  let candidate = null;
+  try {
+    if (file.size > ModelFile.MAX_BYTES) throw new Error("32MB 이하의 JSON 파일을 선택해주세요.");
+    const model = ModelFile.parse(await file.text());
+    if (classIds.length && !confirm("가져오면 현재 ID와 학습 데이터를 교체합니다. 계속할까요?")) {
+      fileStatus("가져오기를 취소했습니다. 기존 데이터는 유지됩니다."); return;
     }
+    fileStatus("모델을 가져오고 있습니다.");
+    await pauseForChange();
+    candidate = ml5.KNNClassifier();
+    await ModelFile.restore(candidate, model, ml5.tf);
+    const previous = knnClassifier;
+    knnClassifier = candidate; candidate = null;
+    classIds = model.classes.map(entry => entry.id);
+    nextClassId = model.nextClassId;
+    isFlipped = model.settings.isFlipped;
+    byId("class-list").replaceChildren();
+    classIds.forEach(renderClass);
+    previous.dispose();
+    setText("result-label", "모델 준비됨");
+    setText("result-confidence", "");
+    const total = Object.values(knnClassifier.getCountByLabel()).reduce((a, b) => a + b, 0);
+    fileStatus(classIds.length + "개 ID · " + total + "개 샘플을 가져왔습니다. 인식 시작을 눌러주세요.");
+    updateReadyStatus();
+  } catch (error) {
+    console.error(error);
+    fileStatus("가져오기 실패: " + error.message);
+  } finally {
+    if (candidate) candidate.dispose();
+    byId("model-file-input").value = "";
+    isBusy = false; updateControls();
+  }
 }
-
-// === Logic: Classification Control ===
-
 function startClassify() {
-    if (knnClassifier.getNumLabels() <= 0) {
-        alert("먼저 학습 데이터를 추가해주세요!");
-        return;
-    }
-    if (!isPredicting) {
-        isPredicting = true;
-        
-        // 전송 상태 초기화
-        lastSentData = "";
-        lastSentTime = 0;
-        
-        cameraResultBadge.style('display', 'block');
-        cameraResultBadge.html('인식 중...');
-        classify(); 
-    }
+  if (isPredicting || isBusy || !isModelReady || !isVideoLoaded || !knnClassifier.getNumLabels()) return;
+  training.stop();
+  isPredicting = true;
+  const epoch = ++predictionEpoch;
+  lastSentData = ""; lastSentTime = 0;
+  byId("camera-result-badge").style.display = "block";
+  setText("camera-result-badge", "인식 중...");
+  pendingPrediction.then(() => { if (isPredicting && epoch === predictionEpoch) classify(epoch); });
 }
-
 function stopClassify() {
-    isPredicting = false;
-    resultLabel.html("중지됨");
-    resultLabel.style('color', '#666');
-    resultConfidence.html("");
-    
-    // 인식 중지 시 stop 신호 즉시 전송
-    sendBluetoothData("stop");
-    lastSentData = "stop";
-    
-    btDataDisplay.html("전송됨: stop");
-    btDataDisplay.style('color', '#EA4335');
-
-    if(cameraResultBadge) {
-        cameraResultBadge.style('display', 'none');
-        cameraResultBadge.removeClass('high-confidence');
-    }
+  const wasPredicting = isPredicting;
+  isPredicting = false; predictionEpoch++;
+  if (wasPredicting) {
+    setText("result-label", "중지됨");
+    setText("result-confidence", "");
+    transmit("stop", predictionEpoch);
+  }
+  byId("camera-result-badge").style.display = "none";
 }
-
-function classify() {
-    if (!isPredicting) return;
-    if (knnClassifier.getNumLabels() <= 0) return;
-    const features = featureExtractor.infer(canvas);
-    knnClassifier.classify(features, gotResults);
+function classify(epoch) {
+  if (!isPredicting || epoch !== predictionEpoch) return;
+  pendingPrediction = (async () => {
+    let features;
+    try {
+      if (!isVideoLoaded || !video || !knnClassifier.getNumLabels()) { stopClassify(); return; }
+      features = featureExtractor.infer(canvas);
+      const result = await knnClassifier.classify(features);
+      if (!isPredicting || epoch !== predictionEpoch) return;
+      const id = result.label;
+      if (!classIds.includes(id)) return;
+      const confidence = result.confidencesByLabel[id] * 100;
+      setText("result-label", "ID" + id);
+      setText("result-confidence", "신뢰도: " + confidence.toFixed(0) + "%");
+      setText("camera-result-badge", "ID" + id + " | " + confidence.toFixed(0) + "%");
+      if (confidence > 50 && ("ID" + id !== lastSentData || Date.now() - lastSentTime > SEND_INTERVAL)) {
+        await transmit("ID" + id, epoch);
+      }
+    } catch (error) {
+      console.error(error);
+      if (epoch === predictionEpoch) { stopClassify(); trainingStatus("인식에 실패했습니다. 카메라와 학습 데이터를 확인해주세요."); }
+    } finally { if (features) features.dispose(); }
+    if (isPredicting && epoch === predictionEpoch) requestAnimationFrame(() => classify(epoch));
+  })();
 }
-
-function gotResults(error, result) {
-    if (error) {
-        console.error(error);
-        return;
-    }
-
-    if (result.confidencesByLabel) {
-        const labelId = result.label;
-        const confidence = result.confidencesByLabel[labelId] * 100;
-        const name = idToNameMap[labelId] || "알 수 없음";
-        const currentTime = millis();
-
-        resultLabel.html(`ID ${labelId} (${name})`);
-        resultLabel.style('color', '#000');
-        resultConfidence.html(`정확도: ${confidence.toFixed(0)}%`);
-
-        const badgeText = `ID ${labelId} (${name}) | ${confidence.toFixed(0)}%`;
-        cameraResultBadge.html(badgeText);
-        
-        if (confidence > 60) {
-            cameraResultBadge.addClass('high-confidence');
-        } else {
-            cameraResultBadge.removeClass('high-confidence');
-        }
-
-        // [Bluetooth Logic] Hybrid Transmission
-        if (isPredicting) {
-             let dataToSend = `ID${labelId}`;
-             
-             // 1. 정확도 50% 이상만 처리
-             if (confidence > 50) {
-                 // 2. (데이터가 변했거나) OR (마지막 전송 후 0.5초 지남)
-                 if (dataToSend !== lastSentData || currentTime - lastSentTime > SEND_INTERVAL) {
-                     
-                     sendBluetoothData(dataToSend);
-                     
-                     lastSentData = dataToSend;
-                     lastSentTime = currentTime;
-                     
-                     btDataDisplay.html(`전송됨: ${dataToSend}`);
-                     btDataDisplay.style('color', '#0f0');
-                 }
-             }
-        } 
-    }
-
-    if (isPredicting) {
-        requestAnimationFrame(classify); 
-    }
-}
-
-// === P5 Draw Loop ===
-
 function draw() {
   background(0);
-
-  if (!isVideoLoaded || video.width === 0) {
-      fill(255);
-      textAlign(CENTER);
-      text("카메라 로딩 중...", width/2, height/2);
-      return;
+  if (!isVideoLoaded || !video || video.width === 0) {
+    fill(255); textAlign(CENTER); text("카메라 로딩 중...", width / 2, height / 2); return;
   }
-
-  let vw = video.width;
-  let vh = video.height;
-  let minDim = min(vw, vh); 
-  
-  let sx = (vw - minDim) / 2;
-  let sy = (vh - minDim) / 2;
-
+  const size = min(video.width, video.height);
   push();
-  if (isFlipped) {
-    translate(width, 0);
-    scale(-1, 1);
-  }
-  image(video, 0, 0, width, height, sx, sy, minDim, minDim);
+  if (isFlipped) { translate(width, 0); scale(-1, 1); }
+  image(video, 0, 0, width, height, (video.width - size) / 2, (video.height - size) / 2, size, size);
   pop();
 }
-
-/* --- Bluetooth Logic --- */
-
 async function connectBluetooth() {
   try {
+    if (!navigator.bluetooth) throw new Error("이 브라우저는 블루투스 연결을 지원하지 않습니다.");
+    if (bluetoothDevice && bluetoothDevice.gatt.connected) return;
     bluetoothDevice = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "BBC micro:bit" }],
-      optionalServices: [UART_SERVICE_UUID]
+      filters: [{ namePrefix: "BBC micro:bit" }], optionalServices: [UART_SERVICE_UUID]
     });
-
+    bluetoothDevice.addEventListener("gattserverdisconnected", disconnected);
     const server = await bluetoothDevice.gatt.connect();
     const service = await server.getPrimaryService(UART_SERVICE_UUID);
     rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
-    txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
-
-    isConnected = true;
-    bluetoothStatus = "연결됨: " + bluetoothDevice.name;
-    updateBluetoothStatusUI(true);
-    
+    isConnected = true; bluetoothStatus = "연결됨: " + bluetoothDevice.name;
+    lastSentData = ""; updateBluetoothStatusUI();
   } catch (error) {
-    console.error("Connection failed", error);
-    bluetoothStatus = "연결 실패";
-    updateBluetoothStatusUI(false, true);
+    bluetoothStatus = "연결 실패: " + error.message;
+    updateBluetoothStatusUI();
   }
 }
-
-function disconnectBluetooth() {
-  if (bluetoothDevice && bluetoothDevice.gatt.connected) {
-    bluetoothDevice.gatt.disconnect();
-  }
-  isConnected = false;
+function disconnected() {
+  isConnected = false; rxCharacteristic = null;
   bluetoothStatus = "연결 해제됨";
-  rxCharacteristic = null;
-  txCharacteristic = null;
+  updateBluetoothStatusUI();
+  setText("bluetooth-data-display", "전송 대기: 기기 연결 필요");
+}
+function disconnectBluetooth() {
+  if (bluetoothDevice && bluetoothDevice.gatt.connected) bluetoothDevice.gatt.disconnect();
+  disconnected();
   bluetoothDevice = null;
-  updateBluetoothStatusUI(false);
 }
-
-function updateBluetoothStatusUI(connected = false, error = false) {
-  const statusElement = select('#bluetoothStatus');
-  if(statusElement) {
-      statusElement.html(`상태: ${bluetoothStatus}`);
-      statusElement.removeClass('status-connected');
-      statusElement.removeClass('status-error');
-      
-      if (connected) {
-        statusElement.addClass('status-connected');
-      } else if (error) {
-        statusElement.addClass('status-error');
-      }
-  }
+function updateBluetoothStatusUI() {
+  setText("bluetoothStatus", "상태: " + bluetoothStatus);
+  byId("bluetoothStatus").classList.toggle("status-connected", isConnected);
 }
-
-async function sendBluetoothData(data) {
-  if (!rxCharacteristic || !isConnected) return;
-  if (isSendingData) return;
-
-  try {
-    isSendingData = true;
-    const encoder = new TextEncoder();
-    await rxCharacteristic.writeValue(encoder.encode(data + "\n"));
-  } catch (error) {
-    console.error("Error sending data:", error);
-  } finally {
-    isSendingData = false;
-  }
+function transmit(data, epoch) {
+  const target = rxCharacteristic;
+  // Serialize writes, preserving stop after an in-flight UART write.
+  const operation = sendQueue.then(async () => {
+    if (data !== "stop" && epoch !== predictionEpoch) return;
+    if (!isConnected || !target || target !== rxCharacteristic) {
+      setText("bluetooth-data-display", "전송 대기: 기기 연결 필요"); return;
+    }
+    try {
+      await target.writeValue(new TextEncoder().encode(data + "\n"));
+      if (epoch !== predictionEpoch) return;
+      lastSentData = data; lastSentTime = Date.now();
+      setText("bluetooth-data-display", "전송됨: " + data);
+    } catch (error) {
+      if (epoch === predictionEpoch) setText("bluetooth-data-display", "전송 실패: 연결을 확인해주세요.");
+    }
+  });
+  sendQueue = operation.catch(() => {});
+  return operation;
 }

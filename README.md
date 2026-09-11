@@ -1,56 +1,90 @@
-# 🧠 Boundary X - AI Model Training (KNN)
+# Boundary X — AI 이미지분류 (KNN)
 
-**Boundary X - AI Model Training (KNN)** is a web-based educational tool that allows users to train their own Image Classification model directly in the browser using **ml5.js (KNN Classifier)**.
+브라우저에서 카메라 이미지를 학습하고 인식한 ID를 micro:bit에 전송하는 정적 웹 앱입니다.
+**ml5 0.12.2, p5.js 0.9.0을 유지**합니다. 별도 서버나 계정 없이 모델 파일을 다운로드·공유·가져올 수 있습니다.
 
-Unlike standard Teachable Machine integrations that load pre-trained models, this application enables **real-time data collection and training**. It connects to **BBC Micro:bit** via **Web Bluetooth (BLE)** to physically control hardware based on the recognized results.
+## 사용 방법
 
-![Project Status](https://img.shields.io/badge/Status-Active-success)
-![Platform](https://img.shields.io/badge/Platform-Web-blue)
-![Tech](https://img.shields.io/badge/Stack-p5.js%20%7C%20ml5.js%20(KNN)-yellow)
+1. HTTPS 사이트(또는 개발용 localhost)를 열고 카메라 권한을 허용합니다. 처음에는 인터넷으로 AI 모델을 불러옵니다.
+2. **+ 학습 ID 추가**로 ID1, ID2 등을 만듭니다. 삭제한 ID는 재사용하지 않으며 전체 초기화 시 ID1로 돌아갑니다.
+3. 원하는 사물을 카메라에 비추고 **학습하기**를 짧게 누르면 샘플 1개가 추가됩니다. 350ms 이상 누르면 약 200ms 간격으로 연속 수집합니다. 처리 속도에 따라 실제 간격은 길어질 수 있습니다.
+4. 손을 떼거나 버튼 밖으로 이동하거나 스크롤·입력이 취소되면 수집을 멈춥니다. 화면 이탈, 카메라 전환, 삭제·초기화·가져오기에서도 멈춥니다. Enter/Space로 1개씩 학습할 수도 있습니다.
+5. **인식 시작**을 누릅니다. 기기를 연결했다면 신뢰도가 50%를 초과하는 결과를 ID 형식으로 전송합니다.
+6. **모델 다운로드**로 JSON을 저장하거나 **파일 공유**로 기기의 공유창을 엽니다.
+7. **모델 가져오기**로 이전에 저장한 JSON을 선택합니다. 현재 ID가 있으면 교체 여부를 확인합니다. 복원 후 인식은 직접 시작합니다.
 
-## ✨ Key Features
+다양한 각도·거리에서 각 ID에 비슷한 수의 샘플을 모으는 것이 좋습니다.
+메모리와 파일 크기를 제한하기 위해 최대 100개 ID, ID당 500개 샘플, 전체 2,000개 샘플을 지원합니다.
 
-### 1. 🎓 In-Browser Training (KNN)
-- **Real-time Learning:** Uses the `MobileNet` feature extractor and `KNN Classifier` to train new classes instantly without backend servers.
-- **Dynamic Class Management:** Users can add custom classes (e.g., "Rock", "Paper"), collect image samples via the webcam, and delete classes as needed.
-- **Immediate Feedback:** Displays the recognized class name and confidence level (%) in real-time.
+## 다운로드·파일 공유·가져오기
 
-### 2. 🔗 Wireless Control (Web Bluetooth API)
-- **Direct Hardware Link:** Connects to **BBC Micro:bit** using the **Nordic UART Service**.
-- **ID-Based Protocol:** Transmits a unique **Class ID** (e.g., `ID1`, `ID2`) to the hardware, making it easy to parse on the microcontroller side.
+- 파일에는 클래스 ID, 다음 ID 번호, 특징 벡터, 엔진·파일 형식 버전, 좌우 반전 설정이 포함됩니다.
+- 원본 사진, 동영상, 블루투스 연결 정보, MobileNet 모델 가중치는 포함하지 않습니다.
+- 파일 공유는 HTTPS와 브라우저/운영체제의 JSON 파일 공유 지원이 필요합니다. 공유 대상(메일 등)은 설치된 앱에 따라 달라집니다.
+- JSON 공유를 지원하지 않으면 자동으로 다운로드합니다. 공유 취소는 다운로드를 시작하지 않습니다.
+- 공유창에 전달됐다는 메시지는 메일 발송 완료를 뜻하지 않습니다. 최종 전송은 선택한 앱에서 확인합니다.
+- 가져올 수 있는 파일은 **이 앱에서 내보낸 버전 1 JSON, 최대 32MiB**입니다. Teachable Machine model.json이나 기존 ml5.save() 형식은 지원하지 않습니다.
+- 검증 또는 임시 분류기 복원에 실패하면 기존 학습 데이터를 유지합니다. 정상 복원 후에만 교체합니다.
+- 가져오기는 기존 데이터와 병합하지 않습니다. 샘플이 없는 ID도 보존합니다.
+- 새로고침 시 자동 복원하지 않으므로 페이지를 닫기 전에 파일로 저장하세요.
+- JSON만으로 완전한 오프라인 실행을 지원하지는 않습니다. AI 모델과 외부 라이브러리를 불러올 인터넷 연결이 필요합니다.
 
-### 3. 📱 Responsive & Sticky UI
-- **Cross-Platform:** Optimized for Desktop, Tablet, and Mobile devices using the `Pretendard` font system.
-- **Sticky Canvas:**
-    - **Mobile Portrait:** The camera view remains fixed (sticky) at the top (`70px`) while users manage training buttons below.
-    - **Mobile Landscape:** The layout shifts to a side-by-side view with the camera fixed on the left.
-- **Camera Tools:** Supports **Flip** (Mirroring) and **Switch Camera** (Front/Rear) features.
+## 구성 파일
 
----
+- index.html: 화면 구조, 기존 버전의 CDN 로딩
+- style.css: 모바일 헤더, 카메라 고정 위치, 학습·파일 버튼 레이아웃
+- sketch.js: 카메라, UI, 학습·추론, 파일 입출력, 블루투스
+- model-file.js: JSON 검증·직렬화·복원과 ml5 버전별 ID 매핑
+- training-input.js: 클릭·터치·hold와 취소 처리
+- tests/browser.cjs: 실제 ml5와 MobileNet을 사용하는 브라우저 회귀 테스트
 
-## 📡 Communication Protocol
+기존 사이트에 적용할 때는 위의 **HTML 1개, CSS 1개, JS 3개를 함께** 배치합니다.
+빌드 과정은 필요하지 않습니다.
 
-When the AI recognizes a trained class, it sends the **Class ID** string followed by a newline character (`\n`) via Bluetooth UART.
+## 저장 형식과 호환성
 
-**Data Format:**
-```text
-ID{ClassNumber}\n
-```
+앱의 특징 추출 설정은 MobileNet v1 / alpha 0.25 / 256차원입니다. 화면의 중앙 정사각형 크롭과 좌우 반전을 적용한 400×400 캔버스를 사용합니다. KNN의 k는 기존 기본값인 3입니다.
 
-**Examples:**
-- **Class 1 (e.g., Apple) detected** `ID1\n`
-- **Class 2 (e.g., Banana) detected** `ID2\n`
-- **When classification stops:** `stop\n`
-> (Note: The ClassNumber is assigned sequentially (1, 2, 3...) as you add classes in the UI.)
+ml5 0.12.2의 데이터셋 키는 표시 ID가 아니라 내부 인덱스이므로 내보낼 때 라벨 매핑을 함께 해석합니다.
+해당 버전의 기본 load()로 복원한 데이터에서 내부 라벨 메타데이터가 초기화되지 않는 문제가 실제 테스트에서 확인되어, 가져오기는 저장한 특징 벡터를 addExample()로 복원합니다. 이미지 특징을 다시 추출하는 과정은 필요하지 않습니다. 주기적으로 브라우저에 제어를 돌려주고 임시 텐서를 해제합니다.
 
-**Tech Stack:**
-- **Frontend:** HTML5, CSS3
-- **Creative Coding:** p5.js (Canvas, Video handling)
-- **AI Engine:** ml5.js ml5.js (FeatureExtractor, KNNClassifier)
-- **Connectivity:** Web Bluetooth API (BLE)
+학습·추론의 임시 특징 텐서는 처리 후 해제합니다. 가져오기·삭제·초기화는 진행 중인 추론이 끝난 뒤 분류기를 변경하며, 취소된 추론 결과가 화면이나 전송을 갱신하지 않도록 처리합니다.
 
-**License:**
-- Copyright © 2024 Boundary X Co. All rights reserved.
-- All rights to the source code and design of this project belong to BoundaryX.
-- Web: boundaryx.io
-- Contact: https://boundaryx.io/contact
+## 블루투스 프로토콜
+
+기존 프로토콜을 유지합니다.
+
+- 결과: ID1 + 줄바꿈, ID2 + 줄바꿈 등
+- 인식 중지: stop + 줄바꿈
+- 결과가 달라지거나 마지막 성공 전송으로부터 500ms가 지나면 재전송
+- 전송 성공 후에만 '전송됨' 표시
+
+micro:bit의 기존 Nordic UART UUID와 전송 특성 선택을 유지했습니다. 실제 하드웨어 연결은 별도로 확인해야 합니다. 웹 블루투스 지원은 브라우저마다 다릅니다.
+
+## 테스트 실행
+
+Node.js와 인터넷 연결이 필요합니다.
+
+~~~sh
+npm install
+npx playwright install chromium
+npm test
+~~~
+
+Windows에 설치된 Edge를 사용할 경우 브라우저 설치 명령 대신 아래처럼 실행할 수 있습니다.
+
+~~~powershell
+$env:BROWSER_CHANNEL = 'msedge'
+npm test
+~~~
+
+테스트는 임시 localhost 서버를 열고 가상 카메라를 사용하는 headless 브라우저를 실행합니다.
+실제 ml5 0.12.2와 MobileNet을 다운로드합니다. 공유 API와 블루투스 경계만 모의 처리하므로 실제 메일이나 기기로 데이터를 보내지 않습니다.
+결과와 화면 캡처는 test-results/에 저장됩니다. TEST_ARTIFACTS 환경변수로 경로를 지정할 수 있습니다.
+검증 범위와 기기 테스트 제한은 VALIDATION.md를 참고하세요.
+
+## License
+
+Copyright © 2024 Boundary X Co. All rights reserved.
+All rights to the source code and design of this project belong to BoundaryX.
+Web: https://boundaryx.io

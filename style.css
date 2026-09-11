@@ -1,6 +1,7 @@
 /* style.css - Boundary X: AI Model Training (Responsive & Sticky) */
 
 :root {
+  --header-height: 72px;
   /* Palette */
   --primary: #000000;       
   --primary-hover: #333333; 
@@ -45,6 +46,7 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -58,6 +60,7 @@ header {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
   transition: font-size 0.3s ease;
 }
 
@@ -66,6 +69,9 @@ header {
   width: auto;
   transition: height 0.3s ease;
 }
+
+.title > a { display: flex; flex: 0 1 auto; min-width: 0; }
+.title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* KNN Badge Style */
 .knn-badge {
@@ -83,6 +89,8 @@ header {
 }
 
 .back-button {
+  white-space: nowrap;
+  flex: 0 0 auto;
   text-decoration: none;
   color: #FFFFFF;
   border: 1px solid #FFFFFF;
@@ -506,7 +514,7 @@ address {
 
   .canvas-container {
     position: sticky; 
-    top: 2rem;        
+    top: calc(var(--header-height) + 12px);
     width: 400px;
   }
 
@@ -516,8 +524,10 @@ address {
 /* 2. Mobile Common Styles (Typography & Sizes) */
 @media (max-width: 767px) {
   /* 로고 축소 */
-  .title { font-size: 1rem !important; }
-  .title img { height: 22px !important; }
+  .title { font-size: 0.9rem !important; gap: 6px; flex: 1; }
+  .title img { height: auto !important; max-height: 22px; max-width: 80px; }
+  .back-button { font-size: 0.8rem; padding: 0.45rem 0.65rem; }
+  header { gap: 8px; }
   .knn-badge { font-size: 0.7rem !important; padding: 1px 6px !important; }
 
   .control-group { padding: 1.5rem 1rem !important; }
@@ -635,7 +645,7 @@ address {
     margin-bottom: 10px !important; 
     
     position: sticky !important;        
-    top: 70px !important;               
+    top: calc(var(--header-height) + 8px) !important;
     z-index: 90;             
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); 
     border: 1px solid rgba(255, 255, 255, 0.2);
@@ -664,7 +674,7 @@ address {
   /* [Sticky] 가로 모드 플로팅 적용 */
   .canvas-container {
     position: sticky !important;         
-    top: 80px !important;                /* 헤더 높이만큼 띄움 */
+    top: calc(var(--header-height) + 8px) !important;
     z-index: 90;
     
     width: 45% !important;    /* 화면 좌측 절반 */
@@ -685,4 +695,42 @@ address {
   button { flex: 1 !important; }
 
   footer { display: none; } /* 공간 확보를 위해 푸터 숨김 */
+}
+
+/* Scoped controls override the original global button minimum width. */
+.controls { min-width: 0; }
+.status-message { margin: 12px 0 0 !important; font-size: 0.85rem !important; overflow-wrap: anywhere; }
+.input-group > .add-button { min-height: 44px; }
+.train-btn-row { min-height: 48px; padding: 0; overflow: hidden; }
+.train-btn-row .train-btn {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  min-width: 0;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.train-btn-row .delete-class-btn {
+  flex: 0 0 44px !important;
+  min-width: 44px; width: 44px !important; min-height: 44px; margin-left: 0;
+}
+.train-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.train-btn-row .train-btn.is-training { background: #dceee0 !important; box-shadow: inset 0 0 0 2px #137333; }
+.train-count { flex-shrink: 0; margin-left: 6px; }
+.id-badge { flex-shrink: 0; }
+.model-file-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); }
+.model-file-buttons > button { min-width: 0; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:focus-visible, a:focus-visible { outline: 3px solid #3778d4; outline-offset: 3px; }
+@media (max-width: 767px) {
+  .model-file-buttons { grid-template-columns: 1fr; }
+  .train-btn-row .train-btn { flex: 1 1 0 !important; width: auto !important; min-height: 46px; }
+  .train-btn-row .delete-class-btn { flex: 0 0 44px !important; }
+  .knn-badge { flex-shrink: 0; margin-left: 0; }
+}
+@media (max-width: 359px) {
+  .title img { max-width: 60px; }
+  .title { font-size: 0.8rem !important; gap: 4px; }
+  .back-button { padding-inline: 0.5rem; }
 }
