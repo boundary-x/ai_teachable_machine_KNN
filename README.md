@@ -87,7 +87,7 @@ npm test
 
 Test results are saved in `test-results/`. See [Validation Notes](VALIDATION.md) for the tested scenarios and device-testing limitations.
 
-The app itself is a static website with **no build step**. Keep `index.html`, `style.css`, `sketch.js`, `model-file.js`, and `training-input.js` together when hosting it over HTTPS.
+The app itself is a static website with **no build step**. Keep `index.html`, `style.css`, `sketch.js`, `model-file.js`, `training-input.js`, `support.js`, and `support.css` together when hosting it over HTTPS.
 
 ---
 
@@ -106,3 +106,8 @@ The app itself is a static website with **no build step**. Keep `index.html`, `s
 - All rights to the source code and design of this project belong to BoundaryX.
 - Web: [boundaryx.io](https://boundaryx.io)
 - Contact: [boundaryx.io/contact](https://boundaryx.io/contact)
+
+## In-app Help
+
+Use Help in the header to open the support card. The read-only walkthrough covers camera setup, image collection, optional micro:bit connection, and JSON storage, with chapter navigation. Example links include the device-name program, a micro:bit project, and a servo project from the introduction page. Troubleshooting explains the 50% transmission threshold, the absence of automatic object-loss stopping, and model-file compatibility.
+

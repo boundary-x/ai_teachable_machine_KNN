@@ -59,3 +59,8 @@ ml5 0.12.2의 기본 load()로 데이터셋을 불러오면 하위 KNN의 라벨
 - 실물 micro:bit는 연결하지 않았습니다. UART 쓰기 순서와 표시 로직은 모의 장치로 검증했습니다.
 - 40개 추가 샘플의 임시 텐서 누수는 확인했지만, 모든 스마트폰의 장시간 실행 성능을 보장하는 부하 테스트는 아닙니다.
 - 이 문서는 로컬 검증 결과입니다. 실제 배포 상태와 기기 동작은 별도로 확인합니다.
+
+## In-app support validation
+
+All 14 walkthrough steps, chapter jumps, optional device skip, focus return, Escape dismissal, and data preservation passed at seven viewport sizes (320, 360, 390, 430, 768, 844, 1280 pixels). Existing 20 browser checks passed with real ml5 0.12.2 and MobileNet initialization using simulated camera input. Example URLs match the introduction page; physical micro:bit and servo behavior was not tested.
+
