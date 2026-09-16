@@ -79,6 +79,8 @@ function createUI() {
   updateControls();
 }
 function updateControls() {
+  syncNextClassId();
+  byId("add-class-btn").textContent = "+ ID" + nextClassId + " 추가";
   const ready = isModelReady && isVideoLoaded && !isBusy;
   document.querySelectorAll(".train-btn").forEach(button => { button.disabled = !ready; });
   document.querySelectorAll(".delete-class-btn, #add-class-btn, #reset-model-btn, #import-model-btn, #camera-control-buttons button")
@@ -127,14 +129,24 @@ function switchCamera() {
   facingMode = facingMode === "user" ? "environment" : "user";
   setupCamera();
 }
+function syncNextClassId() {
+  const used = new Set(classIds);
+  nextClassId = 1;
+  while (used.has(String(nextClassId))) nextClassId++;
+}
 function addNewClass() {
   if (isBusy) return;
+  training.stop();
+  syncNextClassId();
   if (classIds.length >= ModelFile.MAX_CLASSES || nextClassId >= Number.MAX_SAFE_INTEGER - 1) {
     trainingStatus("ID는 최대 100개까지 추가할 수 있습니다."); return;
   }
   const id = String(nextClassId++);
   classIds.push(id);
+  classIds.sort((a, b) => Number(a) - Number(b));
   renderClass(id);
+  document.querySelector('.train-btn-row[data-id="' + id + '"]').classList.add("new-class");
+  trainingStatus("ID" + id + "를 추가했습니다. 이미지를 비추고 학습해주세요.");
   updateControls();
 }
 function renderClass(id) {
@@ -157,7 +169,9 @@ function renderClass(id) {
   remove.setAttribute("aria-label", "ID" + id + " 삭제");
   remove.addEventListener("click", () => deleteClass(id));
   row.appendChild(remove);
-  byId("class-list").appendChild(row);
+  const list = byId("class-list");
+  const nextRow = [...list.children].find(item => Number(item.dataset.id) > Number(id));
+  list.insertBefore(row, nextRow || null);
   updateButtonCount(id);
 }
 function updateButtonCount(id) {
@@ -206,7 +220,9 @@ async function deleteClass(id) {
     classIds = classIds.filter(item => item !== id);
     document.querySelector('.train-btn-row[data-id="' + id + '"]').remove();
     setText("result-label", "데이터 변경됨");
-    trainingStatus("ID" + id + "를 삭제했습니다. 다른 ID 번호는 유지됩니다.");
+    trainingStatus(classIds.length
+      ? "ID" + id + "를 삭제했습니다. 다른 ID 번호는 유지됩니다."
+      : "모든 ID를 삭제했습니다. ID1부터 추가할 수 있습니다.");
   } finally { isBusy = false; updateControls(); }
 }
 async function resetModel() {
@@ -226,7 +242,9 @@ async function resetModel() {
 }
 function makeModelFile() {
   training.stop();
-  const model = ModelFile.serialize(knnClassifier, classIds, nextClassId, isFlipped);
+  // Preserve version-1 file compatibility; recalculate the first vacant ID on import.
+  const exportNextId = Math.max(0, ...classIds.map(Number)) + 1;
+  const model = ModelFile.serialize(knnClassifier, classIds, exportNextId, isFlipped);
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const file = new File([JSON.stringify(model)], "boundary-x-knn-" + stamp + ".json", { type: "application/json" });
   if (file.size > ModelFile.MAX_BYTES) throw new Error("파일이 32MB를 초과합니다. 학습 데이터를 줄여주세요.");
@@ -280,7 +298,7 @@ async function importModel(file) {
     await ModelFile.restore(candidate, model, ml5.tf);
     const previous = knnClassifier;
     knnClassifier = candidate; candidate = null;
-    classIds = model.classes.map(entry => entry.id);
+    classIds = model.classes.map(entry => entry.id).sort((a, b) => Number(a) - Number(b));
     nextClassId = model.nextClassId;
     isFlipped = model.settings.isFlipped;
     byId("class-list").replaceChildren();
