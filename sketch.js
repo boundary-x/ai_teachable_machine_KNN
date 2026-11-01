@@ -413,7 +413,7 @@ function transmit(data, epoch) {
   const operation = sendQueue.then(async () => {
     if (data !== "stop" && epoch !== predictionEpoch) return;
     if (!isConnected || !target || target !== rxCharacteristic) {
-      setText("bluetooth-data-display", "전송 대기: 기기 연결 필요"); return;
+      setText("bluetooth-data-display", "전송할 데이터: " + data); return;
     }
     try {
       await target.writeValue(new TextEncoder().encode(data + "\n"));
@@ -427,3 +427,5 @@ function transmit(data, epoch) {
   sendQueue = operation.catch(() => {});
   return operation;
 }
+
+
